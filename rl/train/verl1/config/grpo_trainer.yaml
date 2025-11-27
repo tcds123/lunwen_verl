@@ -76,7 +76,7 @@ data:
   micro_batch_size: 2
   val_batch_size: null
   max_prompt_length: 8192
-  max_response_length: 256
+  max_response_length: 2048
   shuffle: false
   reward_fn_key: "output"
   prompt_key: "input"
@@ -223,7 +223,7 @@ actor_rollout_ref:
     top_p: 1.0
     top_k: 50
     prompt_length: 512
-    response_length: 256
+    response_length: 2048
     dtype: bfloat16  # 'dtype' 属于这里，用于配置 vLLM/SGLang
     gpu_memory_utilization: 0.25
     ignore_eos: false

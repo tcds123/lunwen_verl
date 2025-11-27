@@ -206,25 +206,40 @@ def compute_custom_reward(**kwargs):
         for system_prompt in system_prompts_from_policy:
             SAMPLE_COUNT += 1
             
+            # ===================================================================
+            # 【KEY FIX】: 正则清洗 <think> 标签
+            # 允许模型思考，但在传给 Model B 之前把思考过程切掉
+            # ===================================================================
+            raw_system_prompt = str(system_prompt)
+            # 移除 <think>...</think> 之间的所有内容（包括换行符）
+            cleaned_system_prompt = re.sub(r'<think>.*?</think>', '', raw_system_prompt, flags=re.DOTALL).strip()
+            
+            # 如果清洗后为空（极端情况），回退到原始输出或给出默认提示，避免 B 模型报错
+            if not cleaned_system_prompt:
+                print(f"⚠️ [Warning] Prompt cleaned to empty! Fallback to raw.")
+                # 这里可以选择回退，或者给定一个空指令让 C 模型去惩罚它
+                # cleaned_system_prompt = raw_system_prompt 
+                cleaned_system_prompt = "Generate python code based on the user request." # 兜底策略
+
             trace_entry = {
                 "timestamp": datetime.now().isoformat(),
                 "sample_id": SAMPLE_COUNT,
                 "iteration": CURRENT_ITERATION,
                 "a_model": {
-                    "input": str(original_prompt_blob), # 记录 A 看到的完整 Prompt
-                    "output": str(system_prompt)
+                    "input": str(original_prompt_blob), 
+                    "raw_output": raw_system_prompt,        # 记录含思维链的原始输出
+                    "output": cleaned_system_prompt         # 记录实际生效的指令（为了兼容旧日志格式保留键名output）
                 },
                 "b_model": [], 
                 "c_model": {} 
             }
             avg_score = 0.0
-            # 【这里定义了 full_c_input_log】
             full_c_input_log = "" 
             
             if MODELS_LOADED:
                 try:
-                    # 1. A -> B (使用清洗后的 actual_user_query)
-                    codes_dict_list = _generate_codes(system_prompt, str(actual_user_query))
+                    # 1. A -> B (使用清洗后的 cleaned_system_prompt)
+                    codes_dict_list = _generate_codes(cleaned_system_prompt, str(actual_user_query))
                     
                     # 2. B -> C (返回 tuple: avg_score, scores, full_results)
                     avg_score, individual_scores, full_results = _evaluate_codes(codes_dict_list, gt_str, str(actual_user_query))
@@ -242,7 +257,7 @@ def compute_custom_reward(**kwargs):
                         # 只记录第一个样本的 Prompt 作为代表
                         if k_idx == 0:
                             full_c_input_log = C_MODEL_TEMPLATE.format(
-                                prompt=str(system_prompt),
+                                prompt=str(cleaned_system_prompt), # 这里的 prompt 也是清洗后的
                                 b_model_input=b_input,
                                 generated_code=gen_code,
                                 code_ground_truth=gt_str 
@@ -251,7 +266,7 @@ def compute_custom_reward(**kwargs):
                     trace_entry["b_model"] = b_logs
                     trace_entry["c_model"] = {
                         "input": full_c_input_log if full_c_input_log else "Error: No code generated",
-                        "output": full_results, # 记录完整 C 模型返回
+                        "output": full_results, 
                         "avg_score": float(avg_score)
                     }
                     
@@ -316,8 +331,6 @@ def _evaluate_codes(codes: List[Dict], ground_truth: str, original_prompt: str) 
 
     for code_item in codes:
         try:
-            # compute_reward 现在返回 (score, full_result)
-            # 确保您的 c_interface.py 也是最新的返回元组的版本！
             score_val, full_res = compute_c_reward(
                 c_judge=C_JUDGE,
                 generated_code=code_item['code'],
