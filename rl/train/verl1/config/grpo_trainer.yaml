@@ -48,7 +48,7 @@ trainer:
   logger: ['console', 'tensorboard']
   nnodes: 1
   n_gpus_per_node: 8
-  save_freq: 5
+  save_freq: 20
   test_freq: -1
   critic_warmup: 0
   device: cuda

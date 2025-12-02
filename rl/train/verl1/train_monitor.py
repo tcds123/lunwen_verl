@@ -18,7 +18,7 @@ OUTPUT_IMG = os.path.join(OUTPUT_DIR, "live_monitor.png")
 OUTPUT_CSV = os.path.join(OUTPUT_DIR, "training_history.csv")
 
 # 刷新间隔 (秒)
-REFRESH_RATE = 15
+REFRESH_RATE = 30
 
 # 想要画图的核心指标 (表格会记录所有指标，只有这些会画图)
 METRICS_TO_PLOT = [
