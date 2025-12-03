@@ -29,7 +29,6 @@ python -m iterative_grpo_trainer \
     data.micro_batch_size=1 \
     actor_rollout_ref.model.path=/data/zhuldz/lunwen/models/Qwen3-4B \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
-    actor_rollout_ref.rollout.n=4 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     trainer.nnodes=1 \
     iterative_rl.max_iterations=2 \

@@ -54,6 +54,48 @@ MAX_CONCURRENCY = 55
 api_semaphore = threading.Semaphore(MAX_CONCURRENCY)
 
 # ===================================================================
+# 1.5 新增：Token 重叠惩罚函数 (兼容无 Tokenizer 的 API 模型)
+# ===================================================================
+def calculate_overlap_penalty(generated_prompt: str, original_prompt: str, tokenizer) -> float:
+    """
+    计算 System Prompt 和 Original Prompt 之间的 Token 重叠率作为惩罚项。
+    如果 tokenizer 不可用，则使用词汇重叠率作为回退。
+    """
+    # 清理输入字符串，确保所有字符为小写并去除多余空白
+    sp_clean = generated_prompt.strip().lower()
+    up_clean = original_prompt.strip().lower()
+
+    if not sp_clean:
+        return 0.0
+
+    if tokenizer:
+        # 优先使用 Tokenizer (更精确)
+        try:
+            sp_tokens = set(tokenizer.encode(sp_clean, add_special_tokens=False))
+            up_tokens = set(tokenizer.encode(up_clean, add_special_tokens=False))
+        except Exception:
+            # Tokenizer 编码失败时回退
+            sp_tokens = set(sp_clean.split())
+            up_tokens = set(up_clean.split())
+    else:
+        # Tokenizer 不可用时，使用基于空格的词汇重叠 (作为回退)
+        sp_tokens = set(sp_clean.split())
+        up_tokens = set(up_clean.split())
+    
+    # 如果生成的 Prompt 为空 (split 之后)，则无惩罚
+    if not sp_tokens:
+        return 0.0
+
+    # 计算交集（共同的 Token/词汇）
+    shared_tokens_count = len(sp_tokens.intersection(up_tokens))
+    
+    # 惩罚项：交集长度 / 生成 Prompt 长度 (惩罚其重复程度)
+    overlap_rate = shared_tokens_count / len(sp_tokens)
+    
+    return overlap_rate
+
+
+# ===================================================================
 # 2. 动态加载 C 模型模板
 # ===================================================================
 C_PROMPT_FILE_PATH = "/data/zhuldz/lunwen/judge/c_model_prompt.txt"
@@ -133,6 +175,9 @@ def _initialize_globals_from_config(config):
 # ===================================================================
 # 5. 核心奖励函数
 # ===================================================================
+# 定义一个全局的惩罚权重 (可根据训练效果进行调整，最大惩罚值为 2.0)
+PENALTY_WEIGHT = 8.0
+
 def compute_custom_reward(**kwargs):
     global SAMPLE_COUNT
     _ensure_models_loaded()
@@ -231,6 +276,8 @@ def compute_custom_reward(**kwargs):
 
     # --- 并发处理函数 ---
     def process_single_sample(task):
+        global B_TOKENIZER # 确保能访问到全局的 B_TOKENIZER
+        
         sys_p = task["system_prompt"]
         query = task["actual_user_query"]
         gt = task["gt_str"]
@@ -252,7 +299,9 @@ def compute_custom_reward(**kwargs):
                 "c_model": {} 
             }
             avg_score = 0.0
-            
+            penalty_score = 0.0 # 重复惩罚分数
+            final_score = 0.0   # 最终奖励分数
+
             if MODELS_LOADED:
                 try:
                     # A -> B
@@ -261,6 +310,17 @@ def compute_custom_reward(**kwargs):
                     # B -> C
                     avg_score, _, full_results = _evaluate_codes(codes_dict_list, gt, query)
                     
+                    # --- 新增核心逻辑：计算并应用重复惩罚 ---
+                    overlap_penalty = calculate_overlap_penalty(clean_sys_p, query, B_TOKENIZER)
+                    
+                    # 计算惩罚分数：权重为 PENALTY_WEIGHT (2.0)
+                    # 惩罚分数最大值为 -2.0
+                    penalty_score = - (overlap_penalty * PENALTY_WEIGHT)
+                    
+                    # 最终得分： C模型平均分 + 惩罚分
+                    final_score = avg_score + penalty_score
+                    
+                    # 记录日志
                     b_logs = []
                     c_log_input = ""
                     
@@ -281,15 +341,22 @@ def compute_custom_reward(**kwargs):
                     trace_entry["c_model"] = {
                         "input": c_log_input,
                         "output": full_results,
-                        "avg_score": float(avg_score)
+                        "avg_score": float(avg_score),
+                        # 记录惩罚项到日志
+                        "overlap_penalty": float(overlap_penalty),
+                        "penalty_score": float(penalty_score),
+                        "final_reward": float(final_score)
                     }
                 except Exception as e:
                     print(f"❌ Pipeline Error: {e}")
+                    traceback.print_exc()
                     trace_entry["b_model"] = [{"input": "Error", "output": f"Pipeline Error: {e}"}]
+                    final_score = 0.0 # 发生错误时奖励为 0
             else:
                 trace_entry["b_model"] = [{"input": "Error", "output": "Models Not Loaded"}]
+                final_score = 0.0
             
-            return float(avg_score), json.dumps(trace_entry, ensure_ascii=False)
+            return float(final_score), json.dumps(trace_entry, ensure_ascii=False)
 
     # --- 执行线程池 ---
     all_scores = [0.0] * len(responses)
@@ -306,6 +373,7 @@ def compute_custom_reward(**kwargs):
                 all_traces[idx] = trace
             except Exception as e:
                 print(f"Task {idx} failed: {e}")
+                traceback.print_exc()
 
     return {
         "reward_tensor": torch.tensor(all_scores, dtype=torch.float32),

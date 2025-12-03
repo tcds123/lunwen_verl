@@ -28,6 +28,9 @@ logs/
 wandb/
 runs/
 a_model_grpo_standard/
+a_model_grpo_4/
+a_model_grpo_5/
+a_model_grpo_6/
 
 # 忽略 IDE 配置文件
 .idea/
