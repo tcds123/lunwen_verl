@@ -313,8 +313,8 @@ def compute_custom_reward(**kwargs):
                     # --- 新增核心逻辑：计算并应用重复惩罚 ---
                     overlap_penalty = calculate_overlap_penalty(clean_sys_p, query, B_TOKENIZER)
                     
-                    # 计算惩罚分数：权重为 PENALTY_WEIGHT (2.0)
-                    # 惩罚分数最大值为 -2.0
+                    # 计算惩罚分数：权重为 PENALTY_WEIGHT (8.0)
+                    # 惩罚分数最大值为 -8.0
                     penalty_score = - (overlap_penalty * PENALTY_WEIGHT)
                     
                     # 最终得分： C模型平均分 + 惩罚分
@@ -332,7 +332,7 @@ def compute_custom_reward(**kwargs):
                         if k == 0:
                             c_log_input = tmpl.format(
                                 prompt=str(clean_sys_p),
-                                b_model_input=b_in,
+                                user_prompt=query,
                                 generated_code=b_out,
                                 code_ground_truth=gt 
                             )
@@ -423,7 +423,8 @@ def _evaluate_codes(codes: List[Dict], ground_truth: str, original_prompt: str) 
                 generated_code=code_item['code'],
                 canonical_solution=gt_str,
                 generated_prompt=code_item.get('system_prompt', ''), 
-                b_model_input=code_item['b_model_input']
+                b_model_input=code_item['b_model_input'],
+                user_prompt=original_prompt
             )
         except Exception as e: 
             print(f"Error in Model C: {e}")

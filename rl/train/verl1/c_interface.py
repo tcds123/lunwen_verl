@@ -61,6 +61,7 @@ def compute_reward(
     canonical_solution: str,
     generated_prompt: str,
     b_model_input: str,
+    user_prompt: str,  # <--- [关键修复] 必须添加这个参数
     model_c: str = "/model/qwen3-235b-a22b"
 ) -> Tuple[float, Dict]:
     """
@@ -73,7 +74,8 @@ def compute_reward(
             prompt=generated_prompt,
             generated_code=generated_code,
             code_ground_truth=canonical_solution,
-            b_model_input=b_model_input
+            b_model_input=b_model_input,
+            user_prompt=user_prompt  # <--- [关键修复] 传递给 judge 方法
         )
 
         if judge_result.get("valid", False):
