@@ -176,7 +176,7 @@ def _initialize_globals_from_config(config):
 # 5. 核心奖励函数
 # ===================================================================
 # 定义一个全局的惩罚权重 (可根据训练效果进行调整，最大惩罚值为 2.0)
-PENALTY_WEIGHT = 8.0
+PENALTY_WEIGHT = 15.0
 
 def compute_custom_reward(**kwargs):
     global SAMPLE_COUNT

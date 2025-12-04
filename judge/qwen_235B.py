@@ -75,7 +75,8 @@ class CModelJudge:
         prompt: str,  # A模型生成的提示词
         generated_code: str,  # B模型生成的代码
         code_ground_truth: str,  # 代码真值
-        b_model_input: str  # 新增：B模型的输入
+        b_model_input: str,  # 新增：B模型的输入
+        user_prompt: str
     ) -> Dict[str, Any]:
         """调用C模型进行评判，返回结构化结果"""
         # 1. 填充提示词模板
@@ -83,7 +84,8 @@ class CModelJudge:
             prompt=prompt,
             generated_code=generated_code,
             code_ground_truth=code_ground_truth,
-            b_model_input=b_model_input  # 新增：B模型的输入
+            b_model_input=b_model_input,  # 新增：B模型的输入
+            user_prompt=user_prompt
         )
 
         # 2. 构造符合Qwen3 API要求的请求体
