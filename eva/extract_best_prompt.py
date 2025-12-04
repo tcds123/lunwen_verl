@@ -1,87 +1,127 @@
-# 文件名: extract_best_prompt.py
 import os
 import json
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 from tqdm import tqdm
+from collections import Counter
 
-# ================= 配置 =================
-# 1. 基础模型路径 (和训练时一致)
-BASE_MODEL_PATH = "/data/zhuldz/lunwen/models/Qwen3-4B" 
-# 2. 训练后的 LoRA/Checkpoint 路径 (请修改为您实际的 output 路径)
-ADAPTER_PATH = "/data/zhuldz/lunwen/rl/train/verl1/a_model_grpo_standard/qwen3_4b_code_generation_iter_0/global_step_450/actor/huggingface" 
-# 3. 测试数据 (使用 humaneval_pro.json 或训练数据)
-DATA_PATH = "/data/zhuldz/lunwen/data/humaneval/humaneval_pro.json"
+# ================= 配置区域 =================
+MERGED_MODEL_PATH = "/data/zhuldz/lunwen/rl/train/verl1/a_model_grpo_standard/qwen3_4b_code_generation_iter_0/global_step_420/actor/huggingface"
+
+# 3. 测试数据路径 (您的数据文件)
+DATA_PATH = "/data/zhuldz/lunwen/generation/humaneval_pro.json"
+
 # 4. 输出文件
-OUTPUT_LOG = "extracted_prompts.jsonl"
-# =======================================
+OUTPUT_LOG = "/data/zhuldz/lunwen/eva/evalplus_results/humaneval/best_prompt/1204_1019.josnl"
+
+# ===========================================
+
+# [Oracle 模式] 模板：包含问题和真值，模拟训练时的输入分布
+ZERO_SHOT_TEMPLATE = """I will provide you with some examples of generating system prompts. Please carefully study and understand the content and structure of these examples.\n\nBased on the examples above, generate an English system prompt for the following input (follow the same format as examples),IMPORTANT RULES:\nOutput ONLY the final system prompt, with NO intermediate thinking, explanations, or reasoning.\nDo NOT include phrases like 'Let me think', 'First, I need to', or any similar thought process.\nIt is not allowed to output any thinking and explanatory statements, only the generated system prompts:
+
+【Input】
+Original prompt: {raw_problem}
+Correct code: {raw_solution}
+"""
 
 def main():
-    print(f"🚀 加载基础模型: {BASE_MODEL_PATH}")
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_PATH, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL_PATH, 
-        torch_dtype=torch.bfloat16, 
-        device_map="auto",
-        trust_remote_code=True
-    )
+    print(f"🚀 Loading Full Merged Model from: {MERGED_MODEL_PATH}")
+    
+    # 1. 直接加载全量模型
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(MERGED_MODEL_PATH, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            MERGED_MODEL_PATH, 
+            dtype=torch.bfloat16, 
+            device_map="auto",
+            trust_remote_code=True
+        )
+    except OSError as e:
+        print(f"❌ 加载失败：在 {MERGED_MODEL_PATH} 找不到模型文件。")
+        print(f"错误详情: {e}")
+        print("请确保您已经运行了合并脚本，并且该目录下有 config.json 文件。")
+        return
 
-    if os.path.exists(ADAPTER_PATH):
-        print(f"🔗 加载 LoRA 权重: {ADAPTER_PATH}")
-        model = PeftModel.from_pretrained(model, ADAPTER_PATH)
-        model.merge_and_unload() # 合并权重以加速推理
-    else:
-        print("⚠️ 未找到 Adapter 路径，将使用原始模型进行推理！")
+    # 2. 准备数据
+    if not os.path.exists(DATA_PATH):
+        print(f"❌ 错误：找不到数据文件 {DATA_PATH}")
+        return
 
-    # 加载数据
     with open(DATA_PATH, 'r') as f:
         data = json.load(f)
-        # 只取前 50 条做采样即可，看是否收敛
-        data = data[:50] if len(data) > 50 else data
+        # 只取前 20 条验证收敛性
+        eval_data = data[:20] if len(data) > 20 else data
 
-    results = []
-    print("🔄 开始生成 System Prompts...")
+    extracted_prompts = []
+    print(f"🔄 开始为 {len(eval_data)} 条数据提取 System Prompt (Full Model Oracle Mode)...")
 
-    for item in tqdm(data):
-        # 构造输入 (必须与训练时 CustomReward 中的格式一致)
-        # 假设训练时输入包含了 "Original prompt: ..." 标记
-        prompt_text = item['raw_problem']
-        input_text = f"Original prompt: {prompt_text}\nCorrect code:"
+    # 3. 批量生成
+    for item in tqdm(eval_data):
+        # 获取问题和真值
+        p_text = item.get('raw_problem', '')
+        s_text = item.get('raw_solution', '')
+        
+        if not p_text or not s_text: 
+            continue
+
+        # 构造输入
+        input_text = ZERO_SHOT_TEMPLATE.format(
+            raw_problem=p_text.strip(),
+            raw_solution=s_text.strip()
+        )
         
         inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
         
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=200, # System Prompt 通常不长
-                do_sample=False,    # 使用贪婪解码，看模型最想输出什么
-                temperature=0.0
+                max_new_tokens=4096,
+                do_sample=False, # 贪婪解码
+                temperature=0.05
             )
         
-        generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        generated_full = tokenizer.decode(outputs[0], skip_special_tokens=True)
         
-        # 提取生成部分 (去掉输入)
-        generated_part = generated_text[len(input_text):].strip()
+        # 提取生成部分
+        generated_part = generated_full[len(input_text):].strip()
         
-        # 简单的清洗 (去掉可能的 artifact)
-        clean_prompt = generated_part.split('\n')[0].strip() # 假设 Prompt 是一行，或者取第一段
-        
-        results.append(clean_prompt)
+        # 清洗截断
+        for stop_word in ["Correct code:", "Input:", "Original prompt:", "<|im_end|>"]:
+            if stop_word in generated_part:
+                generated_part = generated_part.split(stop_word)[0].strip()
+            
+        extracted_prompts.append(generated_part)
 
-    # 保存并分析
-    with open(OUTPUT_LOG, 'w') as f:
-        for p in results:
-            f.write(json.dumps({"prompt": p}) + "\n")
+    # 4. 统计与分析
+    print("\n" + "="*20)
+    print("📊 提示词收敛情况统计 (Top 5)")
+    print("="*20)
     
-    print("\n📊 统计出现频率最高的 Prompt:")
-    from collections import Counter
-    counts = Counter(results)
-    for p, c in counts.most_common(5):
-        print(f"[{c}次] {p}")
+    counter = Counter(extracted_prompts)
+    most_common = counter.most_common(5)
+    
+    best_prompt = None
+    for i, (prompt, count) in enumerate(most_common, 1):
+        ratio = count / len(extracted_prompts) * 100
+        print(f"\n🏆 Rank {i} (出现 {count} 次, 占比 {ratio:.1f}%):")
+        print("-" * 20)
+        print(prompt)
+        print("-" * 20)
+        if i == 1:
+            best_prompt = prompt
 
-    best_prompt = counts.most_common(1)[0][0]
-    print(f"\n🏆 提取到的最佳通用 Prompt:\n{best_prompt}")
+    # 5. 保存结果
+    with open(OUTPUT_LOG, 'w') as f:
+        for p in extracted_prompts:
+            f.write(json.dumps({"generated_system_prompt": p}) + "\n")
+            
+    print(f"\n💾 提取结果已保存至: {OUTPUT_LOG}")
+    
+    if best_prompt:
+        print("\n✅ 操作指南：")
+        print("如果 Rank 1 的提示词看起来是通用的（不包含具体代码细节），")
+        print("请将其复制并粘贴到您的 eva/ 评估脚本中作为 System Prompt。")
 
 if __name__ == "__main__":
     main()
