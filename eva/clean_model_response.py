@@ -5,7 +5,7 @@ from collections import Counter
 
 # ================= 配置 =================
 # 输入文件路径
-INPUT_FILE = "/data/zhuldz/lunwen/eva/evalplus_results/humaneval/best_prompt/1204_1019.josnl"
+INPUT_FILE = "/data/zhuldz/lunwen/eva/evalplus_results/mbpp/best_prompt/extracted_mbpp_1204_1617.jsonl"
 # =======================================
 
 def aggressive_clean(text):
