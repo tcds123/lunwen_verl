@@ -38,7 +38,7 @@ class CModelJudge:
             "Content-Type": "application/json"
         }
         self.timeout = 60  # API超时时间（秒）
-        self.retry_times = 3  # 重试次数
+        self.retry_times = 5  # 重试次数
 
 
     def _send_request(self, request_body: Dict[str, Any]) -> Dict[str, Any]:
@@ -60,7 +60,7 @@ class CModelJudge:
             except requests.exceptions.RequestException as e:
                 retry_count += 1
                 remaining = self.retry_times - retry_count
-                wait_time = 2 ** retry_count  # 指数退避重试
+                wait_time = 10 ** retry_count  # 指数退避重试
                 print(f"请求失败（{retry_count}/{self.retry_times}）：{str(e)}")
                 if remaining > 0:
                     print(f"将在{wait_time}秒后重试...")
@@ -100,9 +100,9 @@ class CModelJudge:
 
         # 3. 发送请求
         request_id = f"judge-{uuid.uuid4().hex[:10]}"
-        print(f"\n=== C模型评判请求 ===")
-        print(f"请求ID：{request_id}")
-        print(f"提示词（前500字符）：{judge_prompt[:500]}...")
+        # print(f"\n=== C模型评判请求 ===")
+        # print(f"请求ID：{request_id}")
+        # print(f"提示词（前500字符）：{judge_prompt[:500]}...")
 
         try:
             response_json = self._send_request(request_body)
@@ -120,8 +120,8 @@ class CModelJudge:
         """解析Qwen3 API的响应，提取C模型评判结果"""
         try:
             # 打印原始响应（调试用）
-            print(f"\n=== 原始API响应（Qwen3格式） ===")
-            print(json.dumps(response, ensure_ascii=False, indent=2))
+            # print(f"\n=== 原始API响应（Qwen3格式） ===")
+            # print(json.dumps(response, ensure_ascii=False, indent=2))
 
             # 4. 按API文档提取C模型输出内容（严格路径）
             if "choices" not in response:

@@ -50,7 +50,7 @@ _CONFIG_INITIALIZED = False
 SAMPLE_COUNT = 0
 
 
-MAX_CONCURRENCY = 55  
+MAX_CONCURRENCY = 50  
 api_semaphore = threading.Semaphore(MAX_CONCURRENCY)
 
 # ===================================================================
@@ -176,7 +176,7 @@ def _initialize_globals_from_config(config):
 # 5. 核心奖励函数
 # ===================================================================
 # 定义一个全局的惩罚权重 (可根据训练效果进行调整，最大惩罚值为 2.0)
-PENALTY_WEIGHT = 15.0
+PENALTY_WEIGHT = 15
 
 def compute_custom_reward(**kwargs):
     global SAMPLE_COUNT
@@ -319,6 +319,7 @@ def compute_custom_reward(**kwargs):
                     
                     # 最终得分： C模型平均分 + 惩罚分
                     final_score = avg_score + penalty_score
+                    final_score = max(final_score, -10.0)
                     
                     # 记录日志
                     b_logs = []

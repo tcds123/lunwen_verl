@@ -8,7 +8,7 @@ from collections import Counter
 from datetime import datetime
 
 # ================= 配置区域 =================
-MERGED_MODEL_PATH = "/data/zhuldz/lunwen/rl/train/verl1/a_model_grpo_standard/qwen3_4b_code_generation_iter_0/global_step_420/actor/huggingface"
+MERGED_MODEL_PATH = "/data/zhuldz/lunwen/rl/train/verl1/a_model_grpo_7/qwen3_4b_code_generation_iter_0/global_step_1260/actor/huggingface"
 DEFAULT_DATASET = "mbpp" 
 
 DATASET_CONFIGS = {
@@ -26,7 +26,7 @@ DATASET_CONFIGS = {
     }
 }
 
-ZERO_SHOT_TEMPLATE = """I will provide you with some examples of generating system prompts. Please carefully study and understand the content and structure of these examples.\n\nBased on the examples above, generate an English system prompt for the following input (follow the same format as examples),IMPORTANT RULES:\nOutput ONLY the final system prompt, with NO intermediate thinking, explanations, or reasoning.\nDo NOT include phrases like 'Let me think', 'First, I need to', or any similar thought process.\nIt is not allowed to output any thinking and explanatory statements, only the generated system prompts:
+ZERO_SHOT_TEMPLATE = """ generate an English system prompt for the following input,IMPORTANT RULES:\nOutput ONLY the final system prompt, with NO intermediate thinking, explanations, or reasoning.\nDo NOT include phrases like 'Let me think', 'First, I need to', or any similar thought process.\nIt is not allowed to output any thinking and explanatory statements, only the generated system prompts:
 
 【Input】
 Original prompt: {raw_problem}

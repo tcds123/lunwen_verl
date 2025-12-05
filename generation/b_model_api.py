@@ -8,7 +8,7 @@ from typing import List, Optional
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("b_model_api.log"), logging.StreamHandler()]
+    handlers=[logging.StreamHandler()]
 )
 
 class BModelAPI:
@@ -86,73 +86,84 @@ class BModelAPI:
     def generate_code(self, prompt: str) -> str:
         """
         调用API生成代码
-        
-        Args:
-            prompt: 输入提示词
-            
-        Returns:
-            str: 生成的代码
         """
-        try:
-            # 构建消息
-            messages = [
-                {
-                    "role": "system", 
-                    "content": "You are a professional code generation assistant. Generate correct and efficient code."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
+        # 定义重试参数
+        max_retries = 5
+        base_wait_time = 5  # 基础等待时间5秒
+        
+        # [修正1] 必须加上这个循环，retry机制才能生效
+        for attempt in range(max_retries):
+            try:
+                # 构建消息
+                messages = [
+                    {
+                        "role": "system", 
+                        "content": "You are a professional code generation assistant. Generate correct and efficient code."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+                
+                # 构建请求数据
+                data = {
+                    "model": self.model_name,
+                    "messages": messages,
+                    **self.generation_params
                 }
-            ]
-            
-            # 构建请求数据
-            data = {
-                "model": self.model_name,
-                "messages": messages,
-                **self.generation_params
-            }
-            
-            # 发送请求
-            start_time = time.time()
-            response = requests.post(
-                self.base_url,
-                headers=self.headers,
-                json=data,
-                timeout=60  # 60秒超时
-            )
-            response_time = time.time() - start_time
-            
-            if response.status_code == 200:
-                result = response.json()
                 
-                # 提取生成的代码
-                if "choices" in result and len(result["choices"]) > 0:
-                    generated_code = result["choices"][0]["message"]["content"].strip()
+                # 发送请求
+                start_time = time.time()
+                response = requests.post(
+                    self.base_url,
+                    headers=self.headers,
+                    json=data,
+                    timeout=60  # 60秒超时
+                )
+                response_time = time.time() - start_time
+                
+                if response.status_code == 200:
+                    result = response.json()
                     
-                    # 记录使用情况
-                    usage = result.get("usage", {})
-                    logging.info(f"API调用成功 - 耗时: {response_time:.2f}s, "
-                                f"Tokens: {usage.get('total_tokens', 'N/A')}, "
-                                f"代码长度: {len(generated_code)}字符")
-                    
-                    return generated_code
+                    # 提取生成的代码
+                    if "choices" in result and len(result["choices"]) > 0:
+                        generated_code = result["choices"][0]["message"]["content"].strip()
+                        
+                        # 记录使用情况
+                        usage = result.get("usage", {})
+                        logging.info(f"API调用成功 - 耗时: {response_time:.2f}s, "
+                                    f"Tokens: {usage.get('total_tokens', 'N/A')}, "
+                                    f"代码长度: {len(generated_code)}字符")
+                        
+                        return generated_code
+                    else:
+                        logging.error(f"API响应格式异常: {result}")
+                        return ""
+                
+                # [修正2] 处理 429 限流
+                elif response.status_code == 429:
+                    logging.warning(f"触发限流 (429)，尝试重试... ({attempt + 1}/{max_retries})")
+                    time.sleep(base_wait_time * (2 ** attempt)) # 指数退避
+                    continue # 进入下一次循环
+                
+                # [修正3] 处理其他非200错误
                 else:
-                    logging.error(f"API响应格式异常: {result}")
-                    return ""
-            else:
-                logging.error(f"API调用失败 - 状态码: {response.status_code}, 响应: {response.text}")
-                return ""
-                
-        except requests.exceptions.Timeout:
-            logging.error("API调用超时")
-            return ""
-        except requests.exceptions.RequestException as e:
-            logging.error(f"API请求异常: {str(e)}")
-            return ""
-        except Exception as e:
-            logging.error(f"生成代码时发生未知错误: {str(e)}")
-            return ""
+                    logging.error(f"API调用失败 - 状态码: {response.status_code}")
+                    time.sleep(2) 
+                    continue
+
+            except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+                logging.error(f"请求异常: {str(e)}，正在重试... ({attempt + 1}/{max_retries})")
+                time.sleep(base_wait_time * (2 ** attempt))
+                continue
+            except Exception as e:
+                logging.error(f"未知错误: {str(e)}")
+                return "" # 未知错误直接返回
+        
+        # 循环结束仍未返回，说明失败
+        logging.error("达到最大重试次数，生成失败")
+        return ""
 
     def generate_code_from_prompt(self, generated_prompt: str, original_prompt: str = None, k: int = 1, max_tokens: int = 4000) -> List[str]:
         """
